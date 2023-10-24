@@ -1,0 +1,8 @@
+  File "/home/haotian/Molecule_Generation/MG/Flex-SBDD/scripts/database_create.py", line 71
+    data = torchify_dict(data)
+    ^
+SyntaxError: invalid syntax
+Traceback (most recent call last):
+  File "/home/haotian/Molecule_Generation/MG/Flex-SBDD/scripts/database_create.py", line 3, in <module>
+    from utils.pdb_parser import PDBProtein
+ModuleNotFoundError: No module named 'utils'
