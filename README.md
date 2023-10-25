@@ -45,7 +45,13 @@ Then follow the guidelines to process it.  The train data split is [split_name.p
 
 If it's inconvenient for you, we also provided the [processed data](https://doi.org/10.5281/zenodo.8421729). You just need to download them in ./data  and create a ./data/crossdock_pocket10 directory, and put the [index.pkl](https://drive.google.com/file/d/1-YCXOV-MWDOE-p6laQxOKPLPVJRakpL1/view?usp=share_link) in it.
 
+#### Process the fragment data from given molecules. 
 
+```python
+python --all_mols ./crossdock_mols.pkl vocab_creator.py --frequence_threshold 30
+```
+
+You can process the fragments based on your own needs. Basically, you can prepare a fragment base in which fragments occur more than 30 times in your dataset, or you can select the top-k frequent fragments to control the size of fragment vocabulary. 
 
 ### (Optional) Making surface data on your own. 
 
