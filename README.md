@@ -4,9 +4,6 @@
 <img src="./assets/modelflow.png" width="100%" height="100%" alt="TOC" align=center />
 </div>
 
-
-<center> The illustration of the generation process </center>
-
 ## Environment
 
 Install via conda .yml file (cuda 11.3)
