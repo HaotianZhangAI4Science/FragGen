@@ -53,6 +53,14 @@ python --all_mols ./crossdock_mols.pkl vocab_creator.py --frequence_threshold 30
 
 You can process the fragments based on your own needs. Basically, you can prepare a fragment base in which fragments occur more than 30 times in your dataset, or you can select the top-k frequent fragments to control the size of fragment vocabulary. 
 
+#### Process the protein-ligand pairs to the lmdb file for fast training. 
+
+```
+python train_data_process.py 
+```
+
+The detailed argument can be found in the script. You need to record your data in the index file first! I provide my preprocessed data and the raw materials in Zenodo! Hope you could benefit from it.   
+
 ### (Optional) Making surface data on your own. 
 
 #### Create the base Python environment
