@@ -28,7 +28,7 @@ tar -xzvf surfgen.tar.gz -C ~/.conda/envs/surfgen
 conda activate surfgen
 ```
 
-## Data
+## Prepared Data
 
 The main data used for training is CrossDock2020 
 
@@ -45,13 +45,15 @@ Then follow the guidelines to process it.  The train data split is [split_name.p
 
 If it's inconvenient for you, we also provided the [processed data](https://doi.org/10.5281/zenodo.8421729). You just need to download them in ./data  and create a ./data/crossdock_pocket10 directory, and put the [index.pkl](https://drive.google.com/file/d/1-YCXOV-MWDOE-p6laQxOKPLPVJRakpL1/view?usp=share_link) in it.
 
-#### Process the fragment data from given molecules. 
+## How to Process on your own data? 
+
+#### Process the fragment data from the given molecule set. 
 
 ```python
-python --all_mols ./crossdock_mols.pkl vocab_creator.py --frequence_threshold 30
+python vocab_creator.py --all_mols ./crossdock_mols.pkl vocab_creator.py --frequence_threshold 30
 ```
 
-You can process the fragments based on your own needs. Basically, you can prepare a fragment base in which fragments occur more than 30 times in your dataset, or you can select the top-k frequent fragments to control the size of fragment vocabulary. 
+You can process the fragments based on your own needs. Basically, you can prepare a fragment base in which fragments occur more than 30 times in your dataset, or you can select the top-k frequent fragments to control the size of fragment vocabulary. The explanation of arguments can be found in the `vocab_creator.py`. 
 
 #### Process the protein-ligand pairs to the lmdb file for fast training. 
 
@@ -59,7 +61,7 @@ You can process the fragments based on your own needs. Basically, you can prepar
 python train_data_process.py 
 ```
 
-The detailed argument can be found in the script. You need to record your data in the index file first! I provide my preprocessed data and the raw materials in Zenodo! Hope you could benefit from it.   
+The detailed argument can be found in the `train_data_process.py`. You need to record your data in the index file first! I provide my preprocessed data and the raw materials in Zenodo! Hope you can benefit from it.   
 
 ### (Optional) Making surface data on your own. 
 
