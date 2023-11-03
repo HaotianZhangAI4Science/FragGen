@@ -117,15 +117,14 @@ And we provide the generated surface file at ./data, namely 3cl_pocket_8.0_res_1
 
 To generate the example, run the gen.py. The model's parameters can be downloaded [here](https://drive.google.com/file/d/1SHSzwK_DOh1ClWFP7jCgMNE43b1MWV2e/view?usp=share_link). Put it at ./ckpt. 
 
-We provide an example of the pharmaceutic target for Covid-19, 3cl protein, in the ./example, run the following code to generate inhibitors directly inside the pocket! 
+We provide an example of the pharmaceutic target for Covid-19, 3cl protein, in the ./example, run the following code to generate inhibitors directly inside the pocket!
 
 ```python
 python gen.py --outdir example --check_point ./ckpt/val_119.pt --ply_file ./example/3cl_pocket_8.0_res_1.5.ply
 ```
 
-<div align=center>
-<img src="./assets/3cl_gen.png" width="50%" height="50%" alt="TOC" align=center />
-</div>
+Furthermore, I have processed the CrossDock test set (including original proteins, original files, and corresponding surface files!)
+
 
 
 

@@ -12,19 +12,22 @@ from utils.chem import read_pkl, write_pkl, read_sdf, write_sdf, mol_with_atom_i
 from copy import deepcopy
 from torch_geometric.transforms import Compose
 from utils.transform import FeaturizeProteinAtom, FeaturizeLigandAtom, \
-    LigandBFSMask, FullMask, ComplexBuilder, PosPredMaker, LigandCountNeighbors, FeaturizeLigandBond, MixMasker
+    LigandBFSMask, FullMask, ComplexBuilder, PosPredMaker, LigandCountNeighbors,\
+         FeaturizeLigandBond, MixMasker, FeaturizeProteinSurface
 from models.IDGaF import FragmentGeneration
-from utils.sample_utils import pdb_to_pocket_data, add_next_mol2data, select_data_with_limited_smi
+from utils.sample_utils import pdb_to_pocket_data, add_next_mol2data, select_data_with_limited_smi, ply_to_pocket_data
 from utils.sample import get_init, get_init_only_frag, get_next
 from rdkit import Chem
 import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='./configs/sample.yml')
+    parser.add_argument('--config', type=str, default='./configs/sample_cartesian.yml')
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--pdb_file', type=str, default='./data/example/5u98_D_rec_5u98_1kx_lig_tt_min_0_pocket10.pdb')
-    parser.add_argument('--sdf_file',type=str,default=None,
+    parser.add_argument('--surf_file', type=str, default='./data/crosssdock_test/4tos_A_rec_4tos_355_lig_tt_min_0/4tos_A_rec_4tos_355_lig_tt_min_0_pocket_8.0_res_1.5.ply',
+                            help='surface file, generate basded on this')
+    parser.add_argument('--pdb_file', type=str, default='./data/crosssdock_test/4tos_A_rec_4tos_355_lig_tt_min_0/4tos_A_rec.pdb')
+    parser.add_argument('--sdf_file',type=str,default='./data/crosssdock_test/4tos_A_rec_4tos_355_lig_tt_min_0/4tos_A_rec_4tos_355_lig_tt_min_0.sdf',
                             help='original ligand sdf_file, only for providing center')
     parser.add_argument('--center',type=str,default=None,
                             help='provide center explcitly, e.g., "32.33,25.56,45.67", where , is used to split x y z coordinates')
@@ -36,13 +39,13 @@ if __name__ == '__main__':
 
     config = load_config(args.config)
 
-    saved_dir = osp.join(args.save_dir, osp.basename(args.pdb_file)[:-4])
+    saved_dir = osp.join(args.save_dir, osp.basename(args.sdf_file)[:-4])
     if not osp.exists(saved_dir):
         os.makedirs(saved_dir, exist_ok=True)
     SDF_dir = osp.join(saved_dir, 'SDF')
     os.makedirs(SDF_dir, exist_ok=True)
 
-    protein_featurizer = FeaturizeProteinAtom()
+    protein_featurizer = FeaturizeProteinSurface()
     ligand_featurizer = FeaturizeLigandAtom()
     protein_atom_feature_dim = protein_featurizer.feature_dim
     ligand_atom_feature_dim = ligand_featurizer.feature_dim
@@ -54,7 +57,7 @@ if __name__ == '__main__':
         FeaturizeLigandBond(),
         protein_featurizer,
         ligand_featurizer,
-        ComplexBuilder(),
+        ComplexBuilder(protein_dim=protein_atom_feature_dim, ligand_dim=ligand_atom_feature_dim),
     ])
     transform_ligand = Compose([
         LigandCountNeighbors(),
@@ -62,32 +65,47 @@ if __name__ == '__main__':
         ligand_featurizer
     ])
 
-
-    # model loading 
-    ckpt = torch.load(config.model.checkpoint , map_location=args.device)
-    model = FragmentGeneration(ckpt['config'].model, protein_atom_feature_dim, \
-                            ligand_atom_feature_dim, frag_atom_feature_dim=45, num_edge_types=5).to(args.device)
-    print('Num of parameters is {0:.4}M'.format(np.sum([p.numel() for p in model.parameters()]) /100000 ))
-    model.load_state_dict(ckpt['model'])
-    model = model.to(args.device)
-
     # load the fragment database
     atom_frag_database = read_pkl(args.frag_base)
     frag_base = {
         'data_base_features': np.concatenate(atom_frag_database['atom_features'], axis = 0).reshape((len(atom_frag_database), -1)),
         'data_base_smiles': np.string_(atom_frag_database.smiles)
     }
+
+    # model loading 
+    ckpt = torch.load(config.model.checkpoint , map_location=args.device)
+    model = FragmentGeneration(ckpt['config'].model, protein_atom_feature_dim, \
+                                ligand_atom_feature_dim, frag_atom_feature_dim=45, num_edge_types=5,\
+                                num_classes=frag_base['data_base_smiles'].shape[0], pos_pred_type=ckpt['config'].model.pos_pred_type).to(args.device)
     
+    print('Num of parameters is {0:.4}M'.format(np.sum([p.numel() for p in model.parameters()]) /100000 ))
+    model.load_state_dict(ckpt['model'])
+    model = model.to(args.device)
+    
+    # the model.pos_pred_type would determine how the neural geometry prediction is performed
+    model.pos_pred_type = config.model.pos_pred_type
     # load the pocket data
-    if (args.sdf_file is not None) or (args.center is not None):
-        pocket_file = pocket_trunction(args.pdb_file, threshold=10.0, sdf_file = args.sdf_file, centroid=args.center, out_dir='./tmp')
+
+    pkt_data = transform(ply_to_pocket_data(args.surf_file)).to(args.device)
+    if config.model.pos_pred_type == 'geomopt':
+        pkt_file = pocket_trunction(args.pdb_file, sdf_file = args.sdf_file)
+        pkt_mol = Chem.MolFromPDBFile(pkt_file)
+        pkt_data.pkt_mol = pkt_mol
     else:
-        pocket_file = args.pdb_file
-    pkt_data = transform(pdb_to_pocket_data(pocket_file)).to(args.device)
-
-
+        pkt_data.pkt_mol = None
+        
+    def reduce_threshold_dict(threshold_dict):
+        new_threshold= EasyDict({})
+        for key in threshold_dict.keys():
+            if threshold_dict[key] > 0.05:
+                new_threshold[key] = threshold_dict[key]/2
+            else:
+                new_threshold[key] = threshold_dict[key] - 1
+        return new_threshold
+    sample_threshold = config.sample.threshold
+    next_threshold = config.sample.next_threshold
     # start to generate 
-    data_initial_list = get_init(model, pkt_data, frag_base, transform_ligand, config.sample.threshold,)
+    data_initial_list = get_init(model, pkt_data, frag_base, transform_ligand, sample_threshold,)
     # data_next_list = get_init_only_frag(model, data)
 
 
@@ -98,7 +116,7 @@ if __name__ == '__main__':
     })
 
     pool.queue = data_initial_list
-    random_sample_queue = False 
+    random_sample_queue = True
 
     global_step = 0 
     while len(pool.mols) < config.sample.num_samples:
@@ -115,9 +133,9 @@ if __name__ == '__main__':
                 # print('next_data construction error')
                 continue
             if global_step < config.sample.initial_num_steps:
-                data_next_list = get_next(model, next_data, frag_base, transform_ligand, threshold_dict=config.sample.threshold,)
+                data_next_list = get_next(model, next_data, frag_base, transform_ligand, threshold_dict=sample_threshold, force_frontier=3)
             else:
-                data_next_list = get_next(model, next_data, frag_base, transform_ligand, threshold_dict=config.sample.next_threshold,) # you can change a low threshold here for broader generation
+                data_next_list = get_next(model, next_data, frag_base, transform_ligand, threshold_dict=next_threshold, force_frontier=-1) # you can change a low threshold here for broader generation
             # assign the smiles to the data
             for data in data_next_list:
                 data['smiles'] = Chem.MolToSmiles(data['ligand_mol'])
@@ -150,6 +168,7 @@ if __name__ == '__main__':
             if len(queue_tmp) % 200 == 0:
                 gc.collect()
                 torch.cuda.empty_cache()
+            
             #print(len(queue_tmp))
             # if len(queue_tmp) > 1000:
             #     break
@@ -158,7 +177,16 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
         
         limited_data_list = select_data_with_limited_smi(queue_tmp, smi_tolorance=config.sample.queue_same_smi_tolorance) # filter the data with the same smiles, smi_tolorance is the maximum number of the same smiles in the limited_data_list
+        # if len(limited_data_list) < 50:
+        #     queue_tmp = pool.queue
+        #     if global_step < config.sample.initial_num_steps:
+        #         sample_threshold = reduce_threshold_dict(sample_threshold)
+        #     else:
+        #         next_threshold = reduce_threshold_dict(next_threshold)
+        #         # print(next_threshold)
+        # else:
         queue_tmp = limited_data_list
+
         p_next_data_list = torch.tensor([data['p_all'] for data in queue_tmp]) # get the probability of each data in the queue
 
         n_tmp = len(queue_tmp)
