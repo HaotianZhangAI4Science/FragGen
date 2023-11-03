@@ -1,0 +1,30 @@
+data:
+  data_name: 'test'
+  dataset:  # test dataset
+    name: pl
+    path: ./data/crossdocked_pocket10
+    split: ./data/split_by_name.pt
+
+model:
+    pos_pred_type: dihedral
+    checkpoint: ./ckpt/cartesian_val_158.pt
+
+sample:
+  seed: 2020
+  mask_init: True
+  num_samples: 500 # the maximum number of samples to generate
+  beam_size: 500 # beam size is the maximum number of data in the queue, however, with less queue_same_smi_tolorance, it is hard to reach the beam size
+  max_steps: 50 # the maximum number of global steps to take
+  
+  threshold: # the threshold for the first step, low threshold means better diversity, but consumes more time
+    focal_threshold: 0.5
+    pos_threshold: 0.2
+    element_threshold: 0.2
+  
+  initial_num_steps: 1 # treat the (initial_num_steps) as the initial steps
+  next_threshold: # the threshold for following step, low threshold means better diversity, but consumes more time
+      focal_threshold: 0.25
+      pos_threshold: 0.1
+      element_threshold: 0.2
+  
+  queue_same_smi_tolorance: 2 # high tolerance means better diversity, but consumes more time 

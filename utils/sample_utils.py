@@ -315,9 +315,10 @@ def add_next_mol2data(mol, data, current_wid, transform_ligand):
     compose_data['idx_protein_in_compose'] = idx_protein
     compose_data['current_wid'] = current_wid.to(device)
     compose_data['current_motif_pos'] = mol_parse['ligand_pos']
-    if data.pkt_mol is not None:
+    try:
         compose_data.pkt_mol = data.pkt_mol
-    
+    except:
+        compose_data.pkt_mol = None
     # compose_data['status'] = data['status']
     return compose_data
 

@@ -22,7 +22,7 @@ import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='./configs/sample_cartesian.yml')
+    parser.add_argument('--config', type=str, default='./configs/sample_dihedral.yml')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--surf_file', type=str, default='./data/crosssdock_test/4tos_A_rec_4tos_355_lig_tt_min_0/4tos_A_rec_4tos_355_lig_tt_min_0_pocket_8.0_res_1.5.ply',
                             help='surface file, generate basded on this')
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     print('If you do not assign the sdf_file and center, the model will treat the pdb_file as a already truncated pocket file, and use the center of the pdb_file as the center of the pocket')
 
     config = load_config(args.config)
-
+    
     saved_dir = osp.join(args.save_dir, osp.basename(args.sdf_file)[:-4])
     if not osp.exists(saved_dir):
         os.makedirs(saved_dir, exist_ok=True)
@@ -71,6 +71,7 @@ if __name__ == '__main__':
         'data_base_features': np.concatenate(atom_frag_database['atom_features'], axis = 0).reshape((len(atom_frag_database), -1)),
         'data_base_smiles': np.string_(atom_frag_database.smiles)
     }
+    print('The fragment database containing {} fragments has been loaded'.format(frag_base['data_base_smiles'].shape[0]))
 
     # model loading 
     ckpt = torch.load(config.model.checkpoint , map_location=args.device)
@@ -81,9 +82,10 @@ if __name__ == '__main__':
     print('Num of parameters is {0:.4}M'.format(np.sum([p.numel() for p in model.parameters()]) /100000 ))
     model.load_state_dict(ckpt['model'])
     model = model.to(args.device)
-    
+
     # the model.pos_pred_type would determine how the neural geometry prediction is performed
-    model.pos_pred_type = config.model.pos_pred_type
+    model.pos_pred_type = ckpt['config'].model.pos_pred_type
+    print("The Nueral Geometry version is {}".format(model.pos_pred_type))
     # load the pocket data
 
     pkt_data = transform(ply_to_pocket_data(args.surf_file)).to(args.device)
@@ -129,7 +131,8 @@ if __name__ == '__main__':
             nexts = []
             try:
                 next_data = add_next_mol2data(data['ligand_mol'], pkt_data, data.current_wid, transform_ligand) # add the current ligand to the pocket data
-            except:
+            except Exception as e:
+                # print(e)
                 # print('next_data construction error')
                 continue
             if global_step < config.sample.initial_num_steps:
