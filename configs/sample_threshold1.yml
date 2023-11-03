@@ -1,0 +1,29 @@
+data:
+  data_name: 'test'
+  dataset:  # test dataset
+    name: pl
+    path: ./data/crossdocked_pocket10
+    split: ./data/split_by_name.pt
+
+model:
+    pos_pred_type: dihedral
+    checkpoint: /home/haotian/Molecule_Generation/MG/Flex-SBDD/logs/train_idgaf_2023_10_15__23_05_51/checkpoints/val_60.pt
+
+sample:
+  seed: 2020
+  mask_init: True
+  num_samples: 100
+  beam_size: 500
+  max_steps: 50
+  threshold:
+    focal_threshold: 0.5
+    pos_threshold: 0.25
+    element_threshold: 0.3
+
+  initial_num_steps: 3 # treat the (initial_num_steps) as the initial steps
+  next_threshold: 
+      focal_threshold: 0.25
+      pos_threshold: 0.1
+      element_threshold: 0.15
+
+  queue_same_smi_tolorance: 3 # high tolerance means better diversity, but consumes more time 

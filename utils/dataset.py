@@ -3,7 +3,7 @@ import numpy as np
 from utils.cluster import FragCluster, ring_decompose, filter_terminal_seeds
 from utils.pdb_parser import PDBProtein
 from utils.chem import read_sdf
-from utils.featurizer import featurize_mol, parse_rdmol
+from utils.featurizer import featurize_mol, parse_rdmol, read_ply
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 import os.path as osp
@@ -248,6 +248,62 @@ class ComplexData(Data):
         else:
             return super().__inc__(key, value)
 
+class SurfaceLigand(Dataset):
+    '''
+    Pair file list version, convenient way for debuging or testing
+    For example:
+    data_base = '/home/haotian/Molecule_Generation/MG/FLAG-main/data/crossdocked_pocket10'
+    index = read_pkl(osp.join(data_base, 'index.pkl'))
+    file_list = []
+    for idx in range(len(index)):
+        try:
+            file_pair = [osp.join(data_base, index[idx][0]), osp.join(data_base, index[idx][1])]
+            file_list.append(file_pair)
+        except Exception as e:
+            ...
+    dataset = ProteinLigand(file_list, transform=transform)
+    '''
+    def __init__(self, pair_list, transform=None, data_base=None, surf_base=None, mode='min'):
+        super().__init__()
+
+        self.pair_list = pair_list
+        self.transform = transform
+        self.mode = mode
+        self.data_base = data_base
+        self.surf_base = surf_base
+
+    def __len__(self):
+        return len(self.pair_list)
+    
+    def __getitem__(self, index):
+        # print(self.pair_list[index])
+        pair = self.pair_list[index]
+        if self.data_base is not None:
+            protein_file = osp.join(self.data_base, pair[0])
+            ligan_file = osp.join(self.data_base, pair[1])
+        else:
+            protein_file = pair[0]
+            ligan_file = pair[1]
+        
+        surf_name = '/'.join(ligan_file.split('/')[-2:])[:-4]+'_pocket_8.0_res_1.5.ply'
+        surf_file = osp.join(self.surf_base, surf_name)
+
+        pdb_dict = read_ply(surf_file)
+        mol = read_sdf(ligan_file)[0]
+        Chem.SanitizeMol(mol)
+        # mol_dict = featurize_mol(mol)
+        mol_dict = parse_rdmol(mol)
+        cluster_mol = FragCluster(mol)
+        data = merge_protein_ligand_dicts(protein_dict=pdb_dict, ligand_dict=mol_dict)
+        data = torchify_dict(data)
+        cluster_mol, contact_protein_id = terminal_reset(cluster_mol,data['ligand_pos'],data['protein_pos'], dist_mode=self.mode)
+        data['protein_contact_idx'] = contact_protein_id
+        data['cluster_mol'] = cluster_mol
+        data = ComplexData(**data)
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
+    
 def terminal_select(distances, all_terminals, mode='min'):
     '''
     Select the terminal with the minumun distance to the protein

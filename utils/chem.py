@@ -319,7 +319,7 @@ def find_genpart(mol, frag, return_large=True):
 from rdkit.Chem import AllChem, rdShapeHelpers
 from rdkit.Chem.FeatMaps import FeatMaps
 from rdkit import RDConfig
-fdefName = osp.join(RDConfig.RDDataDir, 'BaseFeatures.fdef')
+fdefName = osp.join('./utils', 'BaseFeatures.fdef')
 fdef = AllChem.BuildFeatureFactory(fdefName)
 fmParams = {}
 for k in fdef.GetFeatureFamilies():

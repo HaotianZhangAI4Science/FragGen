@@ -15,7 +15,7 @@ from models.dehidral_handler import DihedralHandler
 
 class FragmentGeneration(nn.Module):
     
-    def __init__(self, config,protein_atom_feature_dim, ligand_atom_feature_dim, frag_atom_feature_dim, num_edge_types=5, num_bond_types=4, num_classes=125):
+    def __init__(self, config,protein_atom_feature_dim, ligand_atom_feature_dim, frag_atom_feature_dim, num_edge_types=5, num_bond_types=4, num_classes=125, pos_pred_type='dihedral'):
         super().__init__()
 
         self.config = config
@@ -38,8 +38,13 @@ class FragmentGeneration(nn.Module):
         # define the bond prediction net
         self.bonder = BondLinker([in_sca, in_vec],edge_channels=32, edge_dim=num_bond_types, node_type=8, frag_classes=num_classes, out_class=num_bond_types+1)
         # define the position predition net
-        # self.pos_predictor = CartesianHandler(dim_in=self.emb_dim[0], dim_tmp=self.emb_dim[0], edge_in=num_edge_types, edge_out=config.position.edge_out)
-        self.pos_predictor = DihedralHandler(hidden_channels=self.emb_dim, edge_channels=32, num_edge_types=num_edge_types, key_channels=128, num_interactions=2, return_pos=False)
+        self.pos_pred_type = pos_pred_type
+        if pos_pred_type == 'dihedral':
+            self.pos_predictor = DihedralHandler(hidden_channels=self.emb_dim, edge_channels=32, num_edge_types=num_edge_types, key_channels=128, num_interactions=2, return_pos=False)
+        elif pos_pred_type == 'cartesian':
+            self.pos_predictor = CartesianHandler(dim_in=self.emb_dim[0], dim_tmp=self.emb_dim[0], edge_in=num_edge_types, edge_out=config.position.edge_out)
+        else:
+            raise ValueError("pos_pred_type must be either 'dihedral' or 'cartesians'")
     
     def forward(self,
                 compose_feature, compose_pos, idx_ligand, idx_protein,  # input for embed
@@ -52,7 +57,7 @@ class FragmentGeneration(nn.Module):
                 compose_next_feature, compose_pos_next, idx_ligand_next, idx_protein_next,  
                 edge_feature_pos_pred, edge_index_pos_pred,  # input for the position embedding,
                 a,b, ligand_idx, b_next, batch_b_next, batch_mol, # input for the dihedral angle prediction
-                ):
+                ligand_pos_mask_idx):
 
         # first embed the seperate ligand and protein graph
         h_compose = embed_compose(compose_feature, compose_pos, idx_ligand, idx_protein,
@@ -122,13 +127,19 @@ class FragmentGeneration(nn.Module):
         # two circumstances (1) for fragment
         #                   (2) for atom
         # CartesianHandler
+        
         h_compose_pos_next_pred = embed_compose(compose_next_feature, compose_pos_next, idx_ligand_next, idx_protein_next,
                                     self.ligand_atom_emb, self.protein_atom_emb, self.emb_dim)
-        # _, _, _, updated_pos = self.pos_predictor(h_compose_pos_next_pred[0], edge_feature_pos_pred, edge_index_pos_pred, \
-        #     compose_pos_next, ligand_pos_mask_idx, update_pos=True)
-        
-        alpha = self.pos_predictor(h_compose_pos_next_pred, compose_pos_next, edge_index_pos_pred, edge_feature_pos_pred, \
-                    a, b, ligand_idx, batch_mol, b_next, batch_b_next)
+
+        if self.pos_pred_type == 'dihedral':
+            alpha = self.pos_predictor(h_compose_pos_next_pred, compose_pos_next, edge_index_pos_pred, edge_feature_pos_pred, \
+                        a, b, ligand_idx, batch_mol, b_next, batch_b_next)
+            updated_pos = None
+        elif self.pos_pred_type == 'cartesian':
+            _, _, _, updated_pos = self.pos_predictor(h_compose_pos_next_pred[0], edge_feature_pos_pred, edge_index_pos_pred, \
+                compose_pos_next, ligand_pos_mask_idx, update_pos=True)
+            alpha = None
+
         
 
         return y_protein_frontier_pred, y_frontier_pred,\
@@ -136,4 +147,5 @@ class FragmentGeneration(nn.Module):
             y_type_pred,\
             frag_node_2d,\
             bond_pred,\
-            alpha
+            alpha, \
+            updated_pos

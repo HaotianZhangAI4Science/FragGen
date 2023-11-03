@@ -1,5 +1,6 @@
 model:
   vn: vn
+  pos_pred_type: cartesian
   hidden_channels: 256
   hidden_channels_vec: 64
   encoder:

@@ -55,7 +55,7 @@ def write_sdf(mol_list,file):
         writer.write(i)
     writer.close()
 
-def uff_geomopt(rd_mol,pkt_mol,lig_constraint=None,n_iters=200,n_tries=2, lig_h=True, pkt_h=False):
+def uff_geomopt(rd_mol,pkt_mol,lig_constraint=None,n_iters=200,n_tries=2, lig_h=True, pkt_h=False, voice=True):
     if lig_h:
         rd_mol = Chem.AddHs(rd_mol,addCoords=True)
     if pkt_h:
@@ -85,11 +85,13 @@ def uff_geomopt(rd_mol,pkt_mol,lig_constraint=None,n_iters=200,n_tries=2, lig_h=
         n_iters=n_iters
         n_tries=n_tries
         while n_tries > 0 and not converged:
-            print('.', end='', flush=True)
+            if voice:
+                print('.', end='', flush=True)
             converged = not uff.Minimize(maxIts=n_iters)
             n_tries -= 1
-        print(flush=True)
-        print("Performed UFF with binding site...")
+        if voice:
+            print(flush=True)
+            print("Performed UFF with binding site...")
     except:
         print('Skip UFF...')
 

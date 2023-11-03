@@ -461,7 +461,6 @@ class FullMask(object):
 
         return data
 
-from utils.sample_utils import compose_feature_catdim
 class ComplexBuilder(object):
     def __init__(self, protein_dim=5, ligand_dim=15, knn=36, knn_pos_pred=None):
         super().__init__()
@@ -472,17 +471,22 @@ class ComplexBuilder(object):
             self.knn_pos_pred = knn
     
     def __call__(self, data):
-        len_ligand_ctx = len(data['ligand_context_pos'])
-        len_compose = len_ligand_ctx + len(data['protein_pos'])
+
         ligand_context_pos = data['ligand_context_pos']
+        ligand_context_featrure_full = data['ligand_context_feature_full']
         protein_pos = data['protein_pos']
-        compose_feature, idx_ligand, idx_protein = compose_feature_catdim(data['ligand_context_feature_full'], data['protein_atom_feature'])
-        if compose_feature.shape[1] != max(self.ligand_dim, self.protein_dim):
-            raise ValueError('Feature dimension is not correct')
-        data['compose_pos'] = torch.cat([ligand_context_pos, protein_pos], dim=0)
-        data['compose_feature'] = compose_feature
-        data['idx_ligand_ctx_in_compose'] = idx_ligand
-        data['idx_protein_in_compose'] = idx_protein
+        protein_feature = data['protein_atom_feature']
+        len_ligand_ctx = len(ligand_context_pos)
+        len_protein = len(protein_pos)
+
+        data['compose_pos'] = torch.cat([ligand_context_pos, protein_pos], dim=0).to(torch.float32)
+        len_compose = len_ligand_ctx + len_protein
+        protein_feature_expended = torch.cat([
+            protein_feature,torch.zeros([len_protein, 15-5], dtype=torch.long)
+        ], dim=1)
+        data['compose_feature'] = torch.cat([ligand_context_featrure_full, protein_feature_expended], dim=0)
+        data['idx_ligand_ctx_in_compose'] = torch.arange(len_ligand_ctx, dtype=torch.long)
+        data['idx_protein_in_compose'] = torch.arange(len_ligand_ctx, len_compose, dtype=torch.long)
         data = self.get_knn_graph(data, self.knn, len_ligand_ctx, len_compose, num_workers=16)
         
         if data['mask'] == 'full':
@@ -527,7 +531,7 @@ class ComplexBuilder(object):
 
 class PosPredMaker(object):
 
-    def __init__(self, protein_dim=5, ligand_dim=15, knn_pos_pred=24, lig_noise_scale=0.5):
+    def __init__(self, protein_dim=26, ligand_dim=45, knn_pos_pred=24, lig_noise_scale=0.5):
         super().__init__()
         self.protein_dim = protein_dim
         self.ligand_dim = ligand_dim
@@ -538,17 +542,28 @@ class PosPredMaker(object):
 
         
         protein_pos = data['protein_pos']
-        len_ligand_ctx_next = data['ligand_context_next_feature_full'].size()[0]
         len_protein = len(protein_pos)
+        protein_feature = data['protein_atom_feature']
+        # protein_feature_expended = torch.cat([
+        #     protein_feature,torch.zeros([len_protein, 45-26], dtype=torch.long)
+        # ], dim=1)
+        len_ligand_ctx_next = data['ligand_context_next_feature_full'].size()[0]
+
+        ligand_context_next_featrure_full = data['ligand_context_next_feature_full']
+        # ligand_context_next_featrure_expanded = torch.cat([
+        #     ligand_context_next_featrure_full,torch.zeros([len_ligand_ctx_next, 27-15], dtype=torch.long)
+        # ], dim=1)
+        protein_feature_expended = torch.cat([
+            protein_feature,torch.zeros([len_protein, 15-5], dtype=torch.long)
+        ], dim=1)
+
         len_compose = len_ligand_ctx_next + len_protein
-        compose_next_feature, idx_next_ligand, idx_protein = compose_feature_catdim(data['ligand_context_next_feature_full'], data['protein_atom_feature'])
         
-        if compose_next_feature.shape[1] != max(self.ligand_dim, self.protein_dim):
-            raise ValueError('Feature dimension is not correct')
-        
-        data['compose_next_feature'] = compose_next_feature
-        data['idx_ligand_ctx_next_in_compose'] = idx_next_ligand
-        data['idx_protein_in_compose_with_next'] = idx_protein
+        # data['compose_with_next_pos'] = torch.cat([data['ligand_context_next_pos'], protein_pos], dim=0).to(torch.float32)
+        data['compose_next_feature'] = torch.cat([ligand_context_next_featrure_full, protein_feature_expended], dim=0)
+        data['idx_ligand_ctx_next_in_compose'] = torch.arange(len_ligand_ctx_next, dtype=torch.long)
+        data['idx_protein_in_compose_with_next'] = torch.arange(len_ligand_ctx_next, len_compose, dtype=torch.long)
+        data['idx_protein_in_compose_with_next'] = torch.arange(len_ligand_ctx_next, len_compose, dtype=torch.long)
         
 
         if data['ligand_pos_mask'].size()[0] > 0: # if the next motif is a fragment  
@@ -589,7 +604,8 @@ class PosPredMaker(object):
                 ref = x_pos.reshape(-1)
                 next_motif_pos = deepcopy(data['ligand_context_next_pos'][data['ligand_pos_mask']])
                 data['ligand_context_next_pos'][data['ligand_pos_mask']] = rand_rotate(dir, ref, next_motif_pos)
-            
+                
+                
                 data['compose_with_next_pos'] = torch.cat([data['ligand_context_next_pos'], protein_pos], dim=0).to(torch.float32)
                 
                 data['y_pos'] = y_pos - x_pos
@@ -680,7 +696,7 @@ class PosPredMaker(object):
         # data['compose_next_knn_edge_feature'][idx_edge[idx_edge>=0]][:,1:] = data['ligand_context_next_bond_feature'][idx_edge>=0]
         return data
 
-from utils.cluster import FragCluster, terminal_reset
+
 class MixMasker(object):
 
     def __init__(self, min_ratio=0.0, max_ratio=1.2, min_num_masked=1, min_num_unmasked=1, p_bfs=0.8, p_full=0.2, frag_base=None):
@@ -697,15 +713,3 @@ class MixMasker(object):
     def __call__(self, data):
         f = random.choices(self.masker, k=1, weights=self.masker_choosep)[0]
         return f(data)
-
-
-class TerminalSetter(object):
-    def __init__(self, mode='prob'):
-        super().__init__()
-        self.mode = mode
-
-    def __call__(self, data):
-        cluster_mol, contact_protein_id = terminal_reset(data['cluster_mol'],data['ligand_pos'], data['protein_pos'], protein_focal_mode=self.mode)
-        data['protein_contact_idx'] = contact_protein_id
-        data['cluster_mol'] = cluster_mol
-        return data

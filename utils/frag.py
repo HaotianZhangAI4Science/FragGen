@@ -25,6 +25,9 @@ from rdkit import Chem
 from rdkit.Chem import EditableMol
 from .featurizer import getNodeFeatures, getEdgeFeatures 
 
+class FragmentNotFoundError(Exception):
+    """Raised when the fragment is not found in the database."""
+    pass
 
 def enumerate_possible_attach(fragment1, fragment2, attachment_point1):
     '''
@@ -326,22 +329,11 @@ def query_clique(mol, query, data_base_features, data_base_smiles):
         atom_fragment_ID_index = atomic_map[mol.GetAtomWithIdx(query[0]).GetAtomicNum()]
     else:
         frag_ID_smiles = get_fragment_smiles(mol, query)
-        atom_fragment_ID_index = np.where(data_base_smiles == np.string_(frag_ID_smiles))[0][0]
+        matching_indices = np.where(data_base_smiles == np.string_(frag_ID_smiles))[0]
+        if matching_indices.size == 0:
+            raise FragmentNotFoundError(f"Fragment '{frag_ID_smiles}' not found in database.")
+        atom_fragment_ID_index = matching_indices[0]
     return atom_fragment_ID_index
-
-# def query_clique(mol, query, data_base_features, data_base_smiles):
-#     '''
-#     Find the index of the query in the data base
-#         atom is queried by the features, since it is difficult to save the atom object solely
-#         frag is queried by the cananical smiles
-#     '''
-#     if len(query) == 1:
-#         atom_features = getNodeFeatures([mol.GetAtomWithIdx(query[0])])
-#         atom_fragment_ID_index = np.where(np.all(data_base_features == atom_features, axis = 1))[0][0]
-#     else:
-#         frag_ID_smiles = get_fragment_smiles(mol, query)
-#         atom_fragment_ID_index = np.where(data_base_smiles == np.string_(frag_ID_smiles))[0][0]
-#     return atom_fragment_ID_index
 
 def find_bonds_in_mol(mol ,clique1, clique2):
     '''

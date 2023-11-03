@@ -114,7 +114,7 @@ class ClusterNode(object):
 
     def add_neighbor(self, neighbor):
         self.neighbors.append(neighbor)
-        
+
 class FragCluster(object):
 
     def __init__(self, mol):
@@ -124,7 +124,6 @@ class FragCluster(object):
             specified externally.
         TODO: Error: index[34] cand_roots is None, since it failed to pass the terminal seeds (No Terminal Seeds)
         NOTE: Error: read_sdf is None variable 'mol_' referenced before assignment (Parse Mol Failure)
-        TODO: Error: index 0 is out of bounds for axis 0 with size 0 (Fragment base doesn't cover that type)
         '''
         self.smiles = Chem.MolToSmiles(mol)
         self.mol = mol
@@ -149,8 +148,12 @@ class FragCluster(object):
         for x, y in edge_index:
             self.nodes[x].add_neighbor(self.nodes[y])
             self.nodes[y].add_neighbor(self.nodes[x])
-                
-        root = random.choice(cand_roots)
+        
+        if len(cand_roots) > 0:
+            root = random.choice(cand_roots)
+        else:
+            root = 0
+        
         if root > 0:
             self.nodes[0], self.nodes[root] = self.nodes[root], self.nodes[0]
         
@@ -222,7 +225,7 @@ def terminal_select(distances, all_terminals, mode='min'):
                 min_idx = atom_idx_in_mol
     return choose_terminal, min_idx
 
-def terminal_reset(cluster_mol, ligand_pos, protein_pos):
+def terminal_reset(cluster_mol, ligand_pos, protein_pos, protein_focal_mode='min'):
     # the min_idx is the index of the minimum atom index in mol
     mol = cluster_mol.mol
     cliques, edge_index, _ = ring_decompose(mol)
@@ -230,7 +233,7 @@ def terminal_reset(cluster_mol, ligand_pos, protein_pos):
     all_terminals = filter_terminal_seeds(all_seeds, mol)
     pkt_lig_dist = torch.norm(protein_pos.unsqueeze(1) - ligand_pos.unsqueeze(0), p=2, dim=-1)
     values, index = torch.min(pkt_lig_dist, dim=0)
-    choose_terminal, min_idx = terminal_select(values, all_terminals, mode='min')
+    choose_terminal, min_idx = terminal_select(values, all_terminals, mode=protein_focal_mode)
     for i, node in enumerate(cluster_mol.nodes):
         if min_idx in node.clique_composition:
             cluster_mol.nodes[0], cluster_mol.nodes[i] = cluster_mol.nodes[i], cluster_mol.nodes[0]

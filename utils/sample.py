@@ -13,11 +13,12 @@ from utils.dataset import merge_protein_ligand_dicts, torchify_dict
 from rdkit import Chem
 import copy
 from utils.featurizer import parse_rdmol_base
+from utils.pocket_uff import uff_geomopt
 
 def sample_focal(model, h_compose, 
                 idx_ligand, idx_protein,
                 frontier_threshold=0,
-                force_frontier=3,
+                force_frontier=-1,
                 n_samples=5, # -1 means all
                 topk=False,
                 frontier_scale=1):
@@ -48,10 +49,11 @@ def sample_focal(model, h_compose,
         p_frontier = torch.sigmoid(y_frontier_pred[ind_frontier])
     else:
         if force_frontier > 0:
-            p_frontier, idx_frontier = torch.topk(y_frontier_pred, force_frontier)
+            p_frontier, idx_frontier = torch.topk(y_frontier_pred, min(force_frontier, len(y_frontier_pred)))
             p_frontier = torch.sigmoid(p_frontier)
+            has_frontier = True
     
-    if n_samples > 0:  # sample from frontiers
+    if has_frontier:  # sample from frontiers
         p_frontier_in_compose = torch.zeros(len(h_compose[0]), dtype=torch.float32, device=h_compose[0].device)
         p_frontier_in_compose_sf = torch.zeros_like(p_frontier_in_compose)
         p_frontier_in_compose_sf[idx_frontier] = F.softmax(p_frontier / frontier_scale, dim=0)
@@ -63,8 +65,8 @@ def sample_focal(model, h_compose,
             idx_focal_in_compose = p_frontier_in_compose_sf.multinomial(num_samples=n_samples, replacement=True)
             p_focal = p_frontier_in_compose[idx_focal_in_compose]
     else:  # get all possible frontiers as focal, only work for frontiers being large than 0
-        idx_focal_in_compose = torch.nonzero(ind_frontier)[:, 0]
-        p_focal = p_frontier
+        
+        return (has_frontier, None, None, None, None)
 
     return (has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal)
 
@@ -161,7 +163,7 @@ def sample_attach_point(model,current_wids, next_motif_wids, h_compose, idx_foca
     return next_mols, attach_point.to(device)
 
 def chemical_initialization(first_mol, second_mol, first_attach:int, second_attach:int, first_attach_pos:torch.tensor, \
-                            second_attach_pos:torch.tensor, bond_type=Chem.rdchem.BondType.SINGLE):
+                            second_attach_pos:torch.tensor, bond_type=Chem.rdchem.BondType.SINGLE, align_first_attach=True):
     '''
     This function solve the point rotation problem by chemical way, where aligned vec is first_attach_pos - second_attach_pos.
     In detail, it uses the first_attach_pos - second_attach_pos as the a target vector, and then generate a conformation for bonded_mol in vacuum.
@@ -180,7 +182,11 @@ def chemical_initialization(first_mol, second_mol, first_attach:int, second_atta
 
     vec_align_mat = rotation_matrix_align_vectors(vec_vacuum,vec_target)
     bonded_mol_pos_rotated = (vec_align_mat @ bonded_mol_pos_vacuum.T).mT.squeeze(0)
-    bonded_mol_pos_aligned = bonded_mol_pos_rotated + (first_attach_pos - bonded_mol_pos_rotated[first_attach]).reshape(-1,3)
+
+    if align_first_attach:
+        bonded_mol_pos_aligned = bonded_mol_pos_rotated + (first_attach_pos - bonded_mol_pos_rotated[first_attach]).reshape(-1,3)
+    else:
+        bonded_mol_pos_aligned = bonded_mol_pos_rotated + (second_attach_pos - bonded_mol_pos_rotated[second_attach_in_bonded]).reshape(-1,3)
     
     # initialized_frag_pos = bonded_mol_pos_aligned[-second_mol.GetNumAtoms():,:]
     # initialized_mol = set_mol_position(bonded_mol_vacuum, bonded_mol_pos_aligned.numpy())
@@ -225,7 +231,7 @@ def chemical_initialization_v2(first_mol, second_mol, first_attach:int, second_a
     return bonded_mol_pos_aligned, bonded_mol_aligned
 
 
-def mol_bonding(current_mols, next_mols, idx_focal, idx_next_attach, focal_pos, next_attach_pos, bond_types=None):
+def mol_bonding(current_mols, next_mols, idx_focal, idx_next_attach, focal_pos, next_attach_pos, bond_types=None, align_first_attach=False):
 
     bonded_confs = []
     bonded_mols = []
@@ -246,7 +252,8 @@ def mol_bonding(current_mols, next_mols, idx_focal, idx_next_attach, focal_pos, 
                                                 idx_next_attach[i].tolist(), \
                                                 focal_pos[i].reshape(-1,3), \
                                                 next_attach_pos[i].reshape(-1,3),
-                                                bond_types[i])
+                                                bond_types[i],
+                                                align_first_attach=align_first_attach)
             bonded_confs.append(bonded_conf)
             bonded_mols.append(bonded_mol)
 
@@ -336,12 +343,14 @@ def compose_mol_data(mol, data, focal_idx, next_attach_idx, num_atom_frag, trans
         next_attach_idx = next_attach_idx 
         compose_data['next_frag_pos'] = mol_parse['ligand_pos']
         compose_data['next_frag_idx'] = torch.arange(num_atom_ligand)
+        compose_data['ligand_pos_mask_idx'] = torch.arange(num_atom_ligand).to(device)
     else:
         focal_idx = focal_idx
         next_attach_idx = next_attach_idx + (num_atom_ligand - num_atom_frag) # remaining part
         compose_data['next_frag_pos'] = mol_parse['ligand_pos'][-num_atom_frag:,:]
         compose_data['next_frag_idx'] = torch.arange(num_atom_ligand-num_atom_frag, num_atom_ligand)
-        
+        compose_data['ligand_pos_mask_idx'] = torch.arange(num_atom_ligand-num_atom_frag, num_atom_ligand).to(device)
+
     compose_data['focal_idx'] = focal_idx
     compose_data['next_attach_idx'] = next_attach_idx
     compose_data['num_nodes'] = compose_data['compose_next_feature'].size(0)
@@ -391,6 +400,61 @@ def sample_pos_dihedral(model, mols, data, idx_focal, idx_next_attach, num_next_
         
     return updated_pos_full
 
+def sample_pos_cartesian(model, mols, data, idx_focal, idx_next_attach, num_next_frag_nums, transform_ligand, \
+                        protein_initial=False, batch_size=None):
+    if len(mols) == 0:
+        return []
+    
+    compose_rotate_data = [compose_mol_data(mols[i], data, 
+                                            idx_focal[i], \
+                                            idx_next_attach[i], 
+                                            num_next_frag_nums[i],
+                                            transform_ligand,
+                                            protein=protein_initial) \
+                                            for i in range(len(mols))]
+    
+    num_sample = len(compose_rotate_data)
+    if batch_size == None:
+        batch_size = num_sample
+
+    updated_pos_full = []
+    for i in range(0, num_sample, batch_size):
+        end = min(i + batch_size, num_sample)
+        mini_batch_data = compose_rotate_data[i:end]
+        rotate_batch = Batch.from_data_list(mini_batch_data, follow_batch=['idx_ligand_next','next_frag_pos'])
+        h_compose_pos_next_pred = embed_compose(rotate_batch.compose_next_feature, rotate_batch.compose_pos_next, rotate_batch.idx_ligand_next, rotate_batch.idx_protein_next,
+                                model.ligand_atom_emb, model.protein_atom_emb, model.emb_dim)
+        
+        _, _, _, full_updated_pos = model.pos_predictor(h_compose_pos_next_pred[0], rotate_batch.edge_feature_pos_pred, rotate_batch.edge_index_pos_pred, \
+            rotate_batch.compose_pos_next, rotate_batch.ligand_pos_mask_idx, update_pos=True)
+        
+        updated_pos = split_by_batch(full_updated_pos[rotate_batch['idx_ligand_next']] , rotate_batch['idx_ligand_next_batch'])
+        updated_pos_full.extend(updated_pos)
+        
+    return updated_pos_full
+
+def sample_pos_geomopt(model, mols, data, idx_focal, idx_next_attach, num_next_frag_nums, transform_ligand, \
+                        protein_initial=False, batch_size=None):
+    if len(mols) == 0:
+        return []
+    
+    compose_rotate_data = [compose_mol_data(mols[i], data, 
+                                            idx_focal[i], \
+                                            idx_next_attach[i], 
+                                            num_next_frag_nums[i],
+                                            transform_ligand,
+                                            protein=protein_initial) \
+                                            for i in range(len(mols))]
+    updated_mols = []
+    for i in range(len(compose_rotate_data)):
+        ligand_fixed_atomid = list(set(compose_rotate_data[i]['idx_ligand_next'].tolist()) - set(compose_rotate_data[i]['next_frag_idx'].tolist()))
+        updated_mol = uff_geomopt(rd_mol=mols[i], pkt_mol=data.pkt_mol, lig_constraint=ligand_fixed_atomid, lig_h=False, voice=False)
+        if updated_mol is not None:
+            updated_mols.append(updated_mol)
+        else:
+            updated_mols.append(mols[i])
+    return updated_mols
+
 
 from utils.dataset import ComplexData
 def sample_initial(model, data, frag_base, transform_ligand):
@@ -412,7 +476,7 @@ def sample_initial(model, data, frag_base, transform_ligand):
         edge_feature = compose_knn_edge_feature,
     )
 
-    has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal = sample_focal(model, h_compose, idx_ligand, idx_protein, topk=True, n_samples=5)
+    has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal = sample_focal(model, h_compose, idx_ligand, idx_protein, topk=True, n_samples=10)
     if has_frontier:
         # sample_cavity will triple the number of pools
         pos_generated, pdf_pos, idx_parent, abs_pos_mu, pos_sigma, pos_pi= sample_cavity(model, h_compose, compose_pos, idx_focal_in_compose)
@@ -423,13 +487,15 @@ def sample_initial(model, data, frag_base, transform_ligand):
         p_focal, pdf_pos = p_focal[idx_parent], pdf_pos[idx_parent]
 
         idx_focal_in_compose_af_element, pos_generated_af_element = idx_focal_in_compose[idx_parent], pos_generated[idx_parent] 
-        focal_protein_wids = element2feature(data['protein_element'][idx_focal_in_compose_af_element])
+        # focal_protein_wids = element2feature(data['protein_element'][idx_focal_in_compose_af_element])
+        focal_protein_wids = torch.tensor([frag_base['data_base_features'].shape[0]]).repeat(len(idx_focal_in_compose_af_element)).to(pos_generated.device)
         # sample the next attachment point, only fragments are considered
         next_mols, attach_points = sample_attach_point(model, focal_protein_wids, element_pred, h_compose, idx_focal_in_compose_af_element, frag_base)
         
         frag_mask = (element_pred>7) # neglect the single-atom
 
-        current_smis = [frag_base['data_base_smiles'][i].item().decode() for i in focal_protein_wids]
+        # current_smis = [frag_base['data_base_smiles'][i].item().decode() for i in focal_protein_wids]
+        current_smis = ['C'] * len(focal_protein_wids)
         current_mols = [Chem.MolFromSmiles(smi) for smi in current_smis]
         current_frags = [x for x,m in zip(current_mols, frag_mask) if m]
         current_frags = [gen_pos(mol) for mol in current_frags]
@@ -438,20 +504,39 @@ def sample_initial(model, data, frag_base, transform_ligand):
         
         bonded_confs, bonded_fail_mask_in_frag_mask, bonded_mols = mol_bonding(current_frags, next_frags,idx_focal=torch.zeros(len(next_frags), dtype=torch.int64), \
                 idx_next_attach=attach_points[frag_mask], focal_pos=compose_pos[idx_focal_in_compose_af_element[frag_mask]], \
-                next_attach_pos = pos_generated_af_element[frag_mask])
+                next_attach_pos = pos_generated_af_element[frag_mask], align_first_attach=False) # align the molecule to the predicted position
         
         # here bonded mol is not the next_mols_to_be_rotated, because the first atom is virtual atom in proteins
         next_mols_tobe_rotated = [x for x,m in zip(next_frags, bonded_fail_mask_in_frag_mask) if m]
         next_mols_tobe_rotated = [set_mol_position(next_mols_tobe_rotated[i], bonded_confs[i][1:]) for i in range(len(bonded_confs))]
         
-        rotated_pos = sample_pos_dihedral(model, next_mols_tobe_rotated, data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
-                                        attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
-                                        [mol.GetNumAtoms() for mol in next_mols_tobe_rotated],
-                                        transform_ligand,
-                                        protein_initial=True,
-                                        batch_size=16) # if raise CUDA Memory Error, reduce the batch_size
-                                        
-        next_frags_predicted = [set_mol_position(next_mols_tobe_rotated[i], rotated_pos[i].detach().cpu()) for i in range(len(rotated_pos))]
+        if model.pos_pred_type == 'dihedral':
+            rotated_pos = sample_pos_dihedral(model, next_mols_tobe_rotated, data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
+                                            attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
+                                            [mol.GetNumAtoms() for mol in next_mols_tobe_rotated],
+                                            transform_ligand,
+                                            protein_initial=True,
+                                            batch_size=8) # if raise CUDA Memory Error, reduce the batch_size
+            next_frags_predicted = [set_mol_position(next_mols_tobe_rotated[i], rotated_pos[i].detach().cpu()) for i in range(len(rotated_pos))]
+        elif model.pos_pred_type == 'cartesian':
+            rotated_pos = sample_pos_cartesian(model, next_mols_tobe_rotated, data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
+                                            attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
+                                            [mol.GetNumAtoms() for mol in next_mols_tobe_rotated],
+                                            transform_ligand,
+                                            protein_initial=True,
+                                            batch_size=8) # if raise CUDA Memory Error, reduce the batch_size
+            next_frags_predicted = [set_mol_position(next_mols_tobe_rotated[i], rotated_pos[i].detach().cpu()) for i in range(len(rotated_pos))]
+        else:
+            next_frags_predicted = sample_pos_geomopt(model, next_mols_tobe_rotated, data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
+                                            attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
+                                            [mol.GetNumAtoms() for mol in next_mols_tobe_rotated],
+                                            transform_ligand,
+                                            protein_initial=True,
+                                            batch_size=8) # if raise CUDA Memory Error, reduce the batch_size
+            # next_frags_predicted = next_mols_tobe_rotated
+            # raise NotImplementedError(f'The {model.pos_pred_type} is not implemented')
+
+        
 
         success_frag_mask = double_masking(frag_mask, bonded_fail_mask_in_frag_mask) 
         next_atoms = [x for x,m in zip(next_mols, ~frag_mask) if m]
@@ -490,8 +575,9 @@ def sample_initial(model, data, frag_base, transform_ligand):
         print('Please check your data and make sure the model has loaded the pre-trained parameters')
         return []
     
-type_to_bond = {0: None , 1: Chem.rdchem.BondType.SINGLE, 2: Chem.rdchem.BondType.DOUBLE, 3: Chem.rdchem.BondType.TRIPLE, 4: Chem.rdchem.BondType.AROMATIC}
-def sample_next_state(model, added_data, frag_base, transform_ligand):
+type_to_bond = {0: Chem.rdchem.BondType.SINGLE , 1: Chem.rdchem.BondType.SINGLE, 2: Chem.rdchem.BondType.DOUBLE, 3: Chem.rdchem.BondType.TRIPLE, 4: Chem.rdchem.BondType.AROMATIC}
+# 0 is fake bond for bonding the first atom to the protein
+def sample_next_state(model, added_data, frag_base, transform_ligand, force_frontier=-1):
     # single-data-next
     compose_feature = added_data['compose_feature'].float()
     compose_pos = added_data['compose_pos'].to(torch.float32)
@@ -510,7 +596,7 @@ def sample_next_state(model, added_data, frag_base, transform_ligand):
         edge_feature = compose_knn_edge_feature,
     )
 
-    has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal = sample_focal(model, h_compose, idx_ligand, idx_protein, topk=False, n_samples=5)
+    has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal = sample_focal(model, h_compose, idx_ligand, idx_protein, topk=False, force_frontier=force_frontier, n_samples=10)
     if has_frontier:
         # sample_cavity will triple the number of pools
         pos_generated, pdf_pos, idx_parent, abs_pos_mu, pos_sigma, pos_pi= sample_cavity(model, h_compose, compose_pos, idx_focal_in_compose, n_samples=3)
@@ -550,18 +636,35 @@ def sample_next_state(model, added_data, frag_base, transform_ligand):
 
         bonded_confs, bonded_fail_mask_in_frag_mask, bonded_mol_list = mol_bonding(current_mols_4_frag, next_frags,idx_focal=idx_focal_in_compose_af_element[frag_mask], \
                 idx_next_attach=attach_points[frag_mask], focal_pos=compose_pos[idx_focal_in_compose_af_element[frag_mask]], \
-                next_attach_pos = pos_generated_af_element[frag_mask], bond_types=rdkit_frag_bond)
+                next_attach_pos = pos_generated_af_element[frag_mask], bond_types=rdkit_frag_bond, align_first_attach=True) # since the covalent bond is relatively short, 
+                                                                                                                            # so I believe there is little difference between align_first_attach=True and False
 
         next_frag_tobe_rotated_atom_num = [x.GetNumAtoms() for x,m in zip(next_frags, bonded_fail_mask_in_frag_mask) if m] # only provide 
-
-        updated_pos = sample_pos_dihedral(model, bonded_mol_list, added_data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
-                                        attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
-                                        next_frag_tobe_rotated_atom_num,
-                                        transform_ligand,
-                                        protein_initial=False,
-                                        batch_size=16) # if raise CUDA Memory Error, reduce the batch_size
+        if model.pos_pred_type == 'dihedral':
+            updated_pos = sample_pos_dihedral(model, bonded_mol_list, added_data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
+                                            attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
+                                            next_frag_tobe_rotated_atom_num,
+                                            transform_ligand,
+                                            protein_initial=False,
+                                            batch_size=8) # if raise CUDA Memory Error, reduce the batch_size
+            mol_frags_predicted = [set_mol_position(bonded_mol_list[i], updated_pos[i].detach().cpu()) for i in range(len(updated_pos))]
+        elif model.pos_pred_type == 'cartesian':
+            updated_pos = sample_pos_cartesian(model, bonded_mol_list, added_data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
+                                            attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
+                                            next_frag_tobe_rotated_atom_num,
+                                            transform_ligand,
+                                            protein_initial=False,
+                                            batch_size=8) # if raise CUDA Memory Error, reduce the batch_size
+            mol_frags_predicted = [set_mol_position(bonded_mol_list[i], updated_pos[i].detach().cpu()) for i in range(len(updated_pos))]
+        else:
+            mol_frags_predicted = sample_pos_geomopt(model, bonded_mol_list, added_data, idx_focal_in_compose_af_element[frag_mask][bonded_fail_mask_in_frag_mask], \
+                                            attach_points[frag_mask][bonded_fail_mask_in_frag_mask], 
+                                            next_frag_tobe_rotated_atom_num,
+                                            transform_ligand,
+                                            protein_initial=False,
+                                            batch_size=8) # if raise CUDA Memory Error, reduce the batch_size
+            # raise NotImplementedError('pos_pred_type should be dihedral or cartesian')
         
-        mol_frags_predicted = [set_mol_position(bonded_mol_list[i], updated_pos[i].detach().cpu()) for i in range(len(updated_pos))]
 
         next_atoms = [x for x,m in zip(next_mols, ~frag_mask) if m]
         next_atoms = [gen_pos(mol) for mol in next_atoms]
@@ -658,9 +761,9 @@ def get_init_only_frag(model, data, frag_base, transform_ligand):
         else:
             return data_next_list
         
-def get_next(model, data, frag_base, transform_ligand, threshold_dict = None):
+def get_next(model, data, frag_base, transform_ligand, threshold_dict = None, force_frontier=-1):
     
-    data_next_list = sample_next_state(model, data, frag_base, transform_ligand)
+    data_next_list = sample_next_state(model, data, frag_base, transform_ligand, force_frontier=force_frontier)
     
     if threshold_dict is not None:
         for data in data_next_list:

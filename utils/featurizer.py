@@ -3,6 +3,27 @@ import rdkit
 from rdkit import Chem
 from copy import deepcopy
 import torch 
+from plyfile import PlyData
+
+def read_ply(path, read_face=None):
+    with open(path, 'rb') as f:
+        data = PlyData.read(f)
+
+    features = ([torch.tensor(data['vertex'][axis.name]) for axis in data['vertex'].properties if axis.name not in ['nx', 'ny', 'nz'] ])
+    pos = torch.stack(features[:3], dim=-1)
+    features = torch.stack(features[3:], dim=-1)
+    if read_face is not None:
+        if 'face' in data:
+            faces = data['face']['vertex_indices']
+            faces = [torch.tensor(fa, dtype=torch.long) for fa in faces]
+            face = torch.stack(faces, dim=-1)
+            data = {'feature':features,\
+                'pos':pos,
+                'face':face}
+    else:
+        data = {'feature':features,\
+            'pos':pos}
+    return data
 
 atomTypes = ['H', 'C', 'B', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I'] #12
 # atomTypes = ['C', 'N', 'F', 'P', 'S', 'Cl', 'Br']
@@ -175,7 +196,7 @@ BOND_NAMES = {i: t for i, t in enumerate(BondType.names.keys())}
 
 def parse_rdmol(rdmol, implicit_h=False):
     Chem.SanitizeMol(rdmol)
-    fdefName = osp.join(RDConfig.RDDataDir,'BaseFeatures.fdef')
+    fdefName = osp.join('utils','BaseFeatures.fdef')
     factory = ChemicalFeatures.BuildFeatureFactory(fdefName)
     num_atoms = rdmol.GetNumAtoms()
     num_bonds = rdmol.GetNumBonds()
@@ -246,7 +267,7 @@ def parse_rdmol(rdmol, implicit_h=False):
 
 def parse_rdmol_2d(rdmol):
     Chem.SanitizeMol(rdmol)
-    fdefName = osp.join(RDConfig.RDDataDir,'BaseFeatures.fdef')
+    fdefName = osp.join('utils','BaseFeatures.fdef')
     factory = ChemicalFeatures.BuildFeatureFactory(fdefName)
     num_atoms = rdmol.GetNumAtoms()
     num_bonds = rdmol.GetNumBonds()

@@ -100,6 +100,7 @@ Now you have deployed all the dependent environments. Please follow the ./data/s
 ```python
 python ./data/surf_maker/surf_maker_test.py
 # ply_file = osp.join(surf_path,index[i][1][:-4]+'_pocket_8.0_res_1.5.ply')
+
 ```
 
 If the surface is generated, you will find the .ply file in the ./data/surf_maker

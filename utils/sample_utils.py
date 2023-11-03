@@ -7,9 +7,33 @@ from torch_geometric.nn.pool import knn_graph
 from utils.pdb_parser import PDBProtein
 from utils.dataset import merge_protein_ligand_dicts, torchify_dict
 from torch_geometric.data import Data, Batch
-from utils.featurizer import featurize_frag, parse_rdmol
+from utils.featurizer import featurize_frag, parse_rdmol, read_ply
 from rdkit import Chem
 from utils.dataset import ComplexData
+
+
+def ply_to_pocket_data(ply_file):
+
+    protein_dict = read_ply(ply_file) 
+    
+    data = merge_protein_ligand_dicts(
+        protein_dict = protein_dict,
+        ligand_dict = {
+            'element': torch.empty([0,], dtype=torch.long),
+            'pos': torch.empty([0, 3], dtype=torch.float),
+            'atom_feature': torch.empty([0, 8], dtype=torch.float),
+            'bond_index': torch.empty([2, 0], dtype=torch.long),
+            'bond_type': torch.empty([0,], dtype=torch.long),
+            'context_pos': torch.empty([0, 3], dtype=torch.float),
+            'context_feature_full': torch.empty([0, 15], dtype=torch.float),
+            'context_bond_index': torch.empty([2, 0], dtype=torch.long),
+            }
+    )
+    data = torchify_dict(data)
+    data['ply_file'] = ply_file
+    data['mask'] = 'placeholder'
+
+    return ComplexData(**data)
 
 def pdb_to_pocket_data(pdb_file):
     '''
@@ -37,6 +61,7 @@ def pdb_to_pocket_data(pdb_file):
     return ComplexData(**data)
 
 atomic_map = {6:0, 7:1, 8:2, 9:3, 15:4, 16:5, 17:6, 35:7}
+atoms = [6, 7, 8, 9, 15, 16, 17, 35]
 ptable = Chem.GetPeriodicTable()
 def element2feature(atomic_numbers):
     if type(atomic_numbers) == torch.Tensor:
@@ -44,7 +69,9 @@ def element2feature(atomic_numbers):
     else:
         if atomic_numbers[0] != int:
             atomic_numbers = [int(i) for i in atomic_numbers]
-
+    for i in atomic_numbers:
+        if i not in atoms:
+            atomic_map[i] = 6
     return torch.tensor([atomic_map[i] for i in atomic_numbers], dtype=torch.int64)
 
 def batch_frags(frags):
@@ -139,6 +166,8 @@ class Compose_data(Data):
         elif key == 'focal_idx':
             return self['compose_pos_next'].size(0)
         elif key == 'next_attach_idx':
+            return self['compose_pos_next'].size(0)
+        elif key == 'ligand_pos_mask_idx':
             return self['compose_pos_next'].size(0)
         elif key == 'next_frag_idx':
             return 0
@@ -286,6 +315,8 @@ def add_next_mol2data(mol, data, current_wid, transform_ligand):
     compose_data['idx_protein_in_compose'] = idx_protein
     compose_data['current_wid'] = current_wid.to(device)
     compose_data['current_motif_pos'] = mol_parse['ligand_pos']
+    if data.pkt_mol is not None:
+        compose_data.pkt_mol = data.pkt_mol
     
     # compose_data['status'] = data['status']
     return compose_data

@@ -47,7 +47,7 @@ def get_model_loss(model, batch):
     idx_protein_next = batch['idx_protein_in_compose_with_next']
     edge_feature_pos_pred = batch['compose_next_knn_edge_feature']
     edge_index_pos_pred = batch['compose_next_knn_edge_index']
-    # ligand_pos_mask_idx = batch['ligand_pos_mask_idx']
+    ligand_pos_mask_idx = batch['ligand_pos_mask_idx']
     a = batch['a']
     b = batch['b']
     
@@ -57,7 +57,7 @@ def get_model_loss(model, batch):
     batch_mol = batch['idx_ligand_ctx_next_in_compose_batch']
 
     y_protein_frontier_pred, y_frontier, abs_pos_mu, pos_sigma, pos_pi,\
-        y_type_pred, frag_node_2d, bond_pred,alpha = model(
+        y_type_pred, frag_node_2d, bond_pred,alpha, updated_pos = model(
             compose_feature=compose_feature,
             compose_pos=compose_pos,
             idx_ligand=idx_ligand,
@@ -89,12 +89,13 @@ def get_model_loss(model, batch):
             ligand_idx = ligand_idx,
             b_next=b_next,
             batch_b_next=batch_b_next,
-            batch_mol=batch_mol,)
+            batch_mol=batch_mol,
+            ligand_pos_mask_idx=ligand_pos_mask_idx)
     
     loss_protein_frontier, loss_frontier, loss_cav, \
         loss_class, loss_nx_attch, loss_bond, loss_pos = \
             get_loss(y_protein_frontier_pred, y_frontier, abs_pos_mu, pos_sigma, pos_pi,\
-                                        y_type_pred, frag_node_2d, bond_pred, alpha, batch, verbose=False)
+                                        y_type_pred, frag_node_2d, bond_pred, alpha, updated_pos, batch, verbose=False)
     # torch.nan_to_num(loss_protein_frontier)
     loss = (torch.nan_to_num(loss_frontier)
             + torch.nan_to_num(loss_cav)
@@ -111,7 +112,7 @@ def get_loss(y_protein_frontier_pred, y_frontier,
             y_type_pred,
             frag_node_2d,
             bond_pred,
-            alpha,
+            alpha, updated_pos,
             batch, verbose=False):
     device = y_protein_frontier_pred.device
     # frontier prediction
@@ -160,10 +161,14 @@ def get_loss(y_protein_frontier_pred, y_frontier,
             target =F.one_hot(batch['next_bond'].to(torch.long), num_classes=5).squeeze(1).float().to(device)
         ).clamp_max(10.)
         
-    # loss_pos = rmsd_loss(updated_pos[batch['ligand_pos_mask_idx']] - batch['compose_with_next_pos_target'][batch['ligand_pos_mask_idx']])
-    pred_sin, pred_cos = rotate_alpha_angle(alpha, batch)
-    torsion_loss = (cossin_loss(batch['true_cos'], pred_cos.reshape(-1), batch['true_sin'], pred_cos.reshape(-1))[batch['dihedral_mask']]).mean().clamp_max(10.)
-    loss_pos = torsion_loss
+    if updated_pos is not None:
+        loss_pos = rmsd_loss(updated_pos[batch['ligand_pos_mask_idx']] - batch['compose_with_next_pos_target'][batch['ligand_pos_mask_idx']])
+    elif alpha is not None:
+        pred_sin, pred_cos = rotate_alpha_angle(alpha, batch)
+        torsion_loss = (cossin_loss(batch['true_cos'], pred_cos.reshape(-1), batch['true_sin'], pred_cos.reshape(-1))[batch['dihedral_mask']]).mean().clamp_max(10.)
+        loss_pos = torsion_loss
+    else:
+        loss_pos = torch.tensor(float('nan'))
 
     if verbose:
         print('loss_protein_frontier', loss_protein_frontier)

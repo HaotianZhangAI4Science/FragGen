@@ -6,7 +6,8 @@ data:
     split: ./data/split_by_name.pt
 
 model:
-    checkpoint: ./ckpt/val_78.pt
+    pos_pred_type: cartesian
+    checkpoint: ./ckpt/cartesian_val_158.pt
 
 sample:
   seed: 2020
