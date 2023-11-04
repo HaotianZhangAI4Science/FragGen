@@ -28,6 +28,36 @@ tar -xzvf surfgen.tar.gz -C ~/.conda/envs/surfgen
 conda activate surfgen
 ```
 
+## Generation 
+
+There are three versions of this model, one is the well-designed dihedral prediction version, one is GeomGNN version, and the other is GeomOPT version. 
+
+#### To run the dihedral version: 
+
+```python
+python gen_from_pdb.py --config ./configs/sample_dihedral.yml --surf_file {surface_file} --pdb_file {pdb_file} --sdf_file {lig_file} --save_dir example --device cuda 
+```
+
+#### To run the GeomGNN version: 
+
+```
+python gen_from_pdb.py --config ./configs/sample_cartesian.yml --surf_file {surface_file} --pdb_file {pdb_file} --sdf_file {lig_file} --save_dir example --device cuda 
+```
+
+#### To run the GeomOPT version: 
+
+```
+python gen_from_pdb.py --config ./configs/sample_geomopt.yml --surf_file {surface_file} --pdb_file {pdb_file} --sdf_file {lig_file} --save_dir example --device cuda 
+```
+
+There are several examples in the `./example`. You can try them for a quick review. Furthermore, I have uploaded the [CrossDock test set](https://doi.org/10.5281/zenodo.10069394) (including original proteins, original files, and corresponding surface files).
+
+#### Several parameters you can change according to your own needs. 
+
+In yaml file, you can change several parameters for better exploration on chemical space, i.e., generate molecules with more diversity/more centric to some possible scaffolds. 
+
+The sampling process is based on beam search way, and you can lower the threshold/next_threshold to make model focus on the "most probable" states. For queue_same_smi_tolorance, this is the allowance of the maximum number of same molecules in one sample_next run on a current item of the queue (only consider 2D structures, excluding 3D geometries). 
+
 ## Prepared Data
 
 The main data used for training is CrossDock2020 
@@ -106,24 +136,6 @@ python ./data/surf_maker/surf_maker_test.py
 If the surface is generated, you will find the .ply file in the ./data/surf_maker
 
 And we provide the generated surface file at ./data, namely 3cl_pocket_8.0_res_1.5.ply for further generation. 
-
-<div align=center>
-<img src="./assets/surface.png" width="50%" height="50%" alt="TOC" align=center />
-</div>
-
-
-
-## Generation 
-
-To generate the example, run the gen.py. The model's parameters can be downloaded [here](https://drive.google.com/file/d/1SHSzwK_DOh1ClWFP7jCgMNE43b1MWV2e/view?usp=share_link). Put it at ./ckpt. 
-
-We provide an example of the pharmaceutic target for Covid-19, 3cl protein, in the ./example, run the following code to generate inhibitors directly inside the pocket!
-
-```python
-python gen.py --outdir example --check_point ./ckpt/val_119.pt --ply_file ./example/3cl_pocket_8.0_res_1.5.ply
-```
-
-Furthermore, I have processed the CrossDock test set (including original proteins, original files, and corresponding surface files!)
 
 
 

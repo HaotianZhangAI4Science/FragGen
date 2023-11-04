@@ -118,7 +118,7 @@ if __name__ == '__main__':
     })
 
     pool.queue = data_initial_list
-    random_sample_queue = True
+    random_sample_queue = False
 
     global_step = 0 
     while len(pool.mols) < config.sample.num_samples:
