@@ -460,7 +460,19 @@ class FullMask(object):
         data['mask'] = 'full'
 
         return data
-
+    
+class zero_mask(object):
+    def __init__(self):
+        super().__init__()
+    
+    def __call__(self, data):
+        data['ligand_context_pos'] = data['ligand_pos']
+        data['ligand_context_bond_index'] = data['ligand_bond_index']
+        data['ligand_context_feature_full'] = data['ligand_atom_feature_full']
+        data['ligand_context_bond_feature'] = data['ligand_bond_feature']
+        data['mask'] = 'zero'
+        return data
+    
 from utils.sample_utils import compose_feature_catdim
 class ComplexBuilder(object):
     def __init__(self, protein_dim=5, ligand_dim=15, knn=36, knn_pos_pred=None):

@@ -3,7 +3,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 import copy
 from torch_geometric.nn.pool import knn_graph
-
+from utils.chem import read_sdf
 from utils.pdb_parser import PDBProtein
 from utils.dataset import merge_protein_ligand_dicts, torchify_dict
 from torch_geometric.data import Data, Batch
@@ -11,6 +11,16 @@ from utils.featurizer import featurize_frag, parse_rdmol, read_ply
 from rdkit import Chem
 from utils.dataset import ComplexData
 
+def elab_data(ply_file, frag_file):
+    protein_dict = read_ply(ply_file) 
+    frag_mol = read_sdf(frag_file)[0]
+    mol_dict = parse_rdmol(frag_mol)
+    data = merge_protein_ligand_dicts(protein_dict=protein_dict, ligand_dict=mol_dict)
+    data = torchify_dict(data)
+    data['ply_file'] = ply_file
+    data['mask'] = 'placeholder'
+    data['ligand_mol'] = frag_mol
+    return ComplexData(**data)
 
 def ply_to_pocket_data(ply_file):
 

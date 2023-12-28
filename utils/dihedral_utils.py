@@ -4,7 +4,7 @@ from torch_geometric.utils import degree
 import networkx as nx
 
 def rand_rotate(dir, ref, pos, alpha=None):
-    #dir = dir/torch.norm(dir)
+    dir = dir/torch.norm(dir)
     if alpha is None:
         alpha = torch.randn(1)
     n_pos = pos.shape[0]
@@ -95,75 +95,6 @@ def get_neighbor_bonds(edge_index, bond_type):
     return {k.item(): v for k, v in zip(idxs, vs) if len(v) > 1}
 
 
-def get_leaf_hydrogens(neighbors, x):
-    """
-    Takes the edge indices and atom features and returns dictionary mapping atom index to neighbors, indicating true
-    for hydrogens that are leaf nodes
-    Note: this only works because degree = 1 and hydrogen atomic number = 1 (checks when 1 == 1)
-    Note: we use the 5th feature index bc this corresponds to the atomic number
-    """
-    # start, end = edge_index
-    # degrees = degree(end)
-    # idxs, vals = torch.unique(start, return_counts=True)
-    # vs = torch.split_with_sizes(end, tuple(vals))
-    # return {k.item(): degrees[v] == x[v, 5] for k, v in zip(idxs, vs) if len(v) > 1}
-    leaf_hydrogens = {}
-    h_mask = x[:, 0] == 1
-    for k, v in neighbors.items():
-        leaf_hydrogens[k] = h_mask[neighbors[k]]
-    return leaf_hydrogens
-
-
-def get_dihedral_pairs(edge_index, data):
-    """
-    Given edge indices, return pairs of indices that we must calculate dihedrals for
-    """
-    start, end = edge_index
-    degrees = degree(end)
-    dihedral_pairs_true = torch.nonzero(torch.logical_and(degrees[start] > 1, degrees[end] > 1))
-    dihedral_pairs = edge_index[:, dihedral_pairs_true].squeeze(-1)
-
-    # # first method which removes one (pseudo) random edge from a cycle
-    dihedral_idxs = torch.nonzero(dihedral_pairs.sort(dim=0).indices[0, :] == 0).squeeze().detach().cpu().numpy()
-
-    # prioritize rings for assigning dihedrals
-    dihedral_pairs = dihedral_pairs.t()[dihedral_idxs]
-    G = nx.to_undirected(tg.utils.to_networkx(data))
-    cycles = nx.cycle_basis(G)
-    keep, sorted_keep = [], []
-
-    if len(dihedral_pairs.shape) == 1:
-        dihedral_pairs = dihedral_pairs.unsqueeze(0)
-
-    for pair in dihedral_pairs:
-        x, y = pair
-
-        if sorted(pair) in sorted_keep:
-            continue
-
-        y_cycle_check = [y in cycle for cycle in cycles]
-        x_cycle_check = [x in cycle for cycle in cycles]
-
-        if any(x_cycle_check) and any(y_cycle_check):  # both in new cycle
-            cycle_indices = get_current_cycle_indices(cycles, x_cycle_check, x)
-            keep.extend(cycle_indices)
-
-            sorted_keep.extend([sorted(c) for c in cycle_indices])
-            continue
-
-        if any(y_cycle_check):
-            cycle_indices = get_current_cycle_indices(cycles, y_cycle_check, y)
-            keep.append(pair)
-            keep.extend(cycle_indices)
-
-            sorted_keep.append(sorted(pair))
-            sorted_keep.extend([sorted(c) for c in cycle_indices])
-            continue
-
-        keep.append(pair)
-
-    keep = [t.to(device) for t in keep]
-    return torch.stack(keep).t()
 
 
 def batch_distance_metrics_from_coords(coords, mask):

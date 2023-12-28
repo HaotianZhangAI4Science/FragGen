@@ -243,6 +243,18 @@ def terminal_reset(cluster_mol, ligand_pos, protein_pos, protein_focal_mode='min
     
     return cluster_mol, contact_protein_id
 
+def elem2frag(mol, frag_base):
+    
+    cluster_mol = FragCluster(mol)
+
+    dict_clique = {}
+    for node in cluster_mol.nodes:
+        query_idx = query_clique(cluster_mol.mol, node.clique_composition, **frag_base)
+        for node_idx in node.clique_composition:
+            dict_clique[node_idx] = query_idx
+
+    return dict_clique
+
 if __name__ == '__main__':
     mol = mols[0]
     frag_cluster = FragCluster(mol)

@@ -123,6 +123,25 @@ def transfer_coord(frag, mol):
     new_frag.AddConformer(frag_conformer)
     return new_frag
 
+def generalize(core):
+    query_params = Chem.AdjustQueryParameters()
+    query_params.makeBondsGeneric = True
+    query_params.aromatizeIfPossible = False
+    query_params.adjustDegree = False
+    query_params.adjustHeavyDegree = False
+    generic_core = Chem.AdjustQueryProperties(core,query_params)
+    return generic_core
+
+def transfer_coord_generic(frag, mol, match=None):
+    """
+    Computes coordinates from molecule to fragment (for all matchings)
+    """
+    frag_generic = generalize(frag)
+    match = mol.GetSubstructMatch(frag_generic)
+    mol_coords = mol.GetConformer().GetPositions()
+    frag_coords = mol_coords[np.array(match)]
+    new_frag = set_mol_position(frag, frag_coords)
+    return new_frag
 
 
 def remove_dummys_mol(molecule):
@@ -319,12 +338,15 @@ def find_genpart(mol, frag, return_large=True):
 from rdkit.Chem import AllChem, rdShapeHelpers
 from rdkit.Chem.FeatMaps import FeatMaps
 from rdkit import RDConfig
-fdefName = osp.join('./utils', 'BaseFeatures.fdef')
-fdef = AllChem.BuildFeatureFactory(fdefName)
-fmParams = {}
-for k in fdef.GetFeatureFamilies():
-    fparams = FeatMaps.FeatMapParams()
-    fmParams[k] = fparams
+try:
+    fdefName = osp.join('utils','BaseFeatures.fdef')
+    fdef = AllChem.BuildFeatureFactory(fdefName)
+    fmParams = {}
+    for k in fdef.GetFeatureFamilies():
+        fparams = FeatMaps.FeatMapParams()
+        fmParams[k] = fparams
+except:
+    print('Please config the fdefName appropriately')
 
 keep = ('Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 
         'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe')

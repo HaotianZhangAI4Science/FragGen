@@ -32,7 +32,7 @@ def batch_dihedrals(p0, p1, p2, p3, angle=False):
         return sin_d_/den, cos_d_/den
 
 def rand_rotate_around_axis(vec, ref, pos, alpha=None):
-    #vec = vec/torch.norm(vec)
+    vec = vec/torch.norm(vec)
     if alpha is None:
         alpha = torch.randn(1)
     n_pos = pos.shape[0]

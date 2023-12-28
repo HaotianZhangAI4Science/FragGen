@@ -14,6 +14,7 @@ from rdkit import Chem
 import copy
 from utils.featurizer import parse_rdmol_base
 from utils.pocket_uff import uff_geomopt
+from utils.cluster import elem2frag
 
 def sample_focal(model, h_compose, 
                 idx_ligand, idx_protein,
@@ -604,11 +605,13 @@ def sample_next_state(model, added_data, frag_base, transform_ligand, force_fron
         element_pred, element_prob, idx_parent = sample_type(model, compose_pos, h_compose, pos_generated, n_samples=5)
         p_focal, pdf_pos = p_focal[idx_parent], pdf_pos[idx_parent]
         idx_focal_in_compose_af_element, pos_generated_af_element = idx_focal_in_compose[idx_parent], pos_generated[idx_parent] 
-        current_wids = added_data['current_wid'].repeat(len(idx_focal_in_compose_af_element))
+        # current_wids = added_data['current_wid'].repeat(len(idx_focal_in_compose_af_element)) # Logic error
+        clique_dict = elem2frag(added_data['ligand_mol'], frag_base)
+        mapped_frag_idx = [clique_dict[idx.item()] for idx in idx_focal_in_compose_af_element]
+        current_wids = torch.tensor(mapped_frag_idx, device=idx_focal_in_compose_af_element.device)
         
-
-        global frag_mask 
-        global bonded_fail_mask_in_frag_mask
+        # global frag_mask 
+        # global bonded_fail_mask_in_frag_mask
 
         frag_mask = (element_pred>7) # neglect the single-atom
         if frag_mask.any():
