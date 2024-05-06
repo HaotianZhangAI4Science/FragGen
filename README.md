@@ -50,7 +50,7 @@ python gen_from_pdb.py --config ./configs/sample_cartesian.yml --surf_file {surf
 python gen_from_pdb.py --config ./configs/sample_geomopt.yml --surf_file {surface_file} --pdb_file {pdb_file} --sdf_file {lig_file} --save_dir example --device cuda 
 ```
 
-There are several examples in the `./example`. You can try them for a quick review. Furthermore, I have uploaded the [CrossDock test set](https://doi.org/10.5281/zenodo.10069394) (including original proteins, original files, and corresponding surface files).
+There are several examples in the `./example`. You can try them for a quick review. Furthermore, I have uploaded the [CrossDock test set](https://doi.org/10.5281/zenodo.10069394) (including original proteins, original files, and corresponding surface files). Puls, I also uploaded the [checkpoint](https://doi.org/10.5281/zenodo.11119040). for each version. 
 
 #### Several parameters you can change according to your own needs. 
 
