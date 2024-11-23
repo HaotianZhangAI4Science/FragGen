@@ -146,3 +146,19 @@ And we provide the generated surface file at ./data, namely 3cl_pocket_8.0_res_1
 python train.py
 ```
 
+
+
+## Reference
+
+If you find this work interesting, please cite
+
+```
+@article{zhang2024fraggen,
+  title={FragGen: towards 3D geometry reliable fragment-based molecular generation},
+  author={Zhang, Odin and Huang, Yufei and Cheng, Shichen and Yu, Mengyao and Zhang, Xujun and Lin, Haitao and Zeng, Yundian and Wang, Mingyang and Wu, Zhenxing and Zhao, Huifeng and others},
+  journal={Chemical Science},
+  year={2024},
+  publisher={Royal Society of Chemistry}
+}
+```
+
